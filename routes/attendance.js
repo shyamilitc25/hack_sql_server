@@ -1,90 +1,272 @@
-const express = require('express');
-const pool = require('../db');
+const express = require("express");
+const pool = require("../db");
 const router = express.Router();
 
-// Mark attendance (scan QR)
-router.post('/scan', async (req, res) => {
+// 1. Scan QR code and mark attendance
+router.post("/scan-qr", async (req, res) => {
   const { qrCode } = req.body;
-  if (!qrCode) return res.status(400).json({ error: 'QR code required' });
-  const [[candidate]] = await pool.execute('SELECT * FROM candidates WHERE qr_code = ?', [qrCode]);
-  if (!candidate) return res.status(404).json({ error: 'Invalid QR code' });
+  if (!qrCode) return res.status(400).json({ error: "QR code is required" });
 
-  const today = new Date().toISOString().split('T')[0];
-  const [[attendance]] = await pool.execute(
-    'SELECT * FROM attendance WHERE candidate_id = ? AND DATE(check_in_time) = ?', [candidate.id, today]
-  );
+  try {
+    // Find candidate by QR code
+    const [[candidate]] = await pool.execute(
+      "SELECT * FROM candidates WHERE qr_code = ?",
+      [qrCode]
+    );
+    if (!candidate) return res.status(404).json({ error: "Invalid QR code" });
 
-  if (attendance) {
-    if (!attendance.check_out_time) {
-      await pool.execute('UPDATE attendance SET check_out_time = NOW(), status = "checked_out" WHERE id = ?', [attendance.id]);
-      return res.json({
-        message: 'Check-out successful',
-        candidate,
-        attendance: { check_in_time: attendance.check_in_time, check_out_time: new Date().toISOString(), status: 'checked_out' }
-      });
+    const todayStr = new Date().toISOString().split("T")[0];
+    // Find today's attendance record
+    const [records] = await pool.execute(
+      `SELECT * FROM attendance
+       WHERE candidate_id = ? AND DATE(check_in_time) = ?`,
+      [candidate.id, todayStr]
+    );
+    const existingAttendance = records[0];
+
+    if (existingAttendance) {
+      if (!existingAttendance.check_out_time) {
+        // Mark check-out
+        await pool.execute(
+          "UPDATE attendance SET check_out_time = ? WHERE id = ?",
+          [new Date(), existingAttendance.id]
+        );
+        return res.json({
+          message: "Check-out successful",
+          candidate,
+          attendance: {
+            check_in_time: existingAttendance.check_in_time,
+            check_out_time: new Date(),
+            status: "checked_out",
+          },
+        });
+      } else {
+        return res.json({
+          message: "Already checked out today",
+          candidate,
+          attendance: existingAttendance,
+        });
+      }
     } else {
-      return res.json({ message: 'Already checked out today', candidate, attendance });
+      // Mark check-in
+      const [result] = await pool.execute(
+        "INSERT INTO attendance (candidate_id, check_in_time, status) VALUES (?, ?, ?)",
+        [candidate.id, new Date(), "present"]
+      );
+      return res.json({
+        message: "Check-in successful",
+        candidate,
+        attendance: {
+          check_in_time: new Date(),
+          status: "present",
+        },
+      });
     }
-  } else {
-    await pool.execute('INSERT INTO attendance (candidate_id, check_in_time, status) VALUES (?, NOW(), "present")', [candidate.id]);
-    return res.json({ message: 'Check-in successful', candidate, attendance: { check_in_time: new Date().toISOString(), status: 'present' } });
+  } catch (error) {
+    console.error("Error scanning QR code:", error);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// Get attendance for candidate
-router.get('/candidate/:id', async (req, res) => {
-  const [attendance] = await pool.execute(
-    `SELECT a.*, c.name, c.email, c.university, c.degree, c.skills, c.photo_url, c.selfie_path
-     FROM attendance a JOIN candidates c ON a.candidate_id = c.id WHERE a.candidate_id = ? ORDER BY a.check_in_time DESC`,
-    [req.params.id]
-  );
-  res.json(attendance);
+// 1. Scan QR code from scanner with candidateId
+router.post("/scan-qr-scanner", async (req, res) => {
+  const { candidateId } = req.body;
+  if (!candidateId)
+    return res.status(400).json({ error: "Candidate ID is required" });
+
+  try {
+    const [[candidate]] = await pool.execute(
+      "SELECT * FROM candidates WHERE id = ?",
+      [candidateId]
+    );
+    if (!candidate) return res.status(404).json({ error: "Invalid candidate" });
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    const [records] = await pool.execute(
+      `SELECT * FROM attendance
+       WHERE candidate_id = ? AND DATE(check_in_time) = ?`,
+      [candidate.id, todayStr]
+    );
+    const existingAttendance = records[0];
+
+    if (existingAttendance) {
+      if (!existingAttendance.check_out_time) {
+        // Mark check-out
+        await pool.execute(
+          "UPDATE attendance SET check_out_time = ? WHERE id = ?",
+          [new Date(), existingAttendance.id]
+        );
+        return res.json({
+          message: "Check-out successful",
+          candidate,
+          attendance: {
+            check_in_time: existingAttendance.check_in_time,
+            check_out_time: new Date(),
+            status: "checked_out",
+          },
+        });
+      } else {
+        return res.json({
+          message: "Already checked out today",
+          candidate,
+          attendance: existingAttendance,
+        });
+      }
+    } else {
+      // Mark check-in
+      await pool.execute(
+        "INSERT INTO attendance (candidate_id, check_in_time, status) VALUES (?, ?, ?)",
+        [candidate.id, new Date(), "present"]
+      );
+      return res.json({
+        message: "Check-in successful",
+        candidate,
+        attendance: {
+          check_in_time: new Date(),
+          status: "present",
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Error scanning QR code:", error);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-// List attendance (pagination)
-router.get('/', async (req, res) => {
-  let { date, page = 1, limit = 10 } = req.query;
-  page = parseInt(page); limit = parseInt(limit);
-  const offset = (page - 1) * limit;
-  let where = '', params = [];
-  if (date) { where = 'WHERE DATE(a.check_in_time) = ?'; params.push(date); }
-  const [[{ total }]] = await pool.execute(
-    `SELECT COUNT(*) as total FROM attendance a JOIN candidates c ON a.candidate_id = c.id ${where}`, params
-  );
-  const [attendance] = await pool.execute(
-    `SELECT a.*, c.name, c.email, c.university, c.degree, c.skills, c.photo_url, c.selfie_path
-     FROM attendance a JOIN candidates c ON a.candidate_id = c.id ${where}
-     ORDER BY a.check_in_time DESC LIMIT ? OFFSET ?`, [...params, limit, offset]
-  );
-  res.json({ data: attendance, total, page, pageSize: limit });
+// 2. Get attendance for a specific candidate
+router.get("/candidate/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [attendance] = await pool.execute(
+      `SELECT a.*, c.* FROM attendance a
+       INNER JOIN candidates c ON a.candidate_id = c.id
+       WHERE a.candidate_id = ?
+       ORDER BY a.check_in_time DESC`,
+      [id]
+    );
+    res.json(attendance);
+  } catch (error) {
+    console.error("Error fetching attendance:", error);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-// Attendance stats
-router.get('/stats', async (req, res) => {
+// 3. Get all attendance records with pagination (and optional date filter)
+router.get("/", async (req, res) => {
+  const { date, page = 1, limit = 10 } = req.query;
+  const pageNum = parseInt(page);
+  const pageSize = parseInt(limit);
+  const offset = (pageNum - 1) * pageSize;
+
+  try {
+    let filterSql = "";
+    let filterParams = [];
+    if (date) {
+      filterSql = "WHERE DATE(check_in_time) = ?";
+      filterParams.push(date);
+    }
+
+    // Get total count
+    const [[{ total }]] = await pool.execute(
+      `SELECT COUNT(*) as total FROM attendance ${filterSql}`,
+      filterParams
+    );
+
+    // Get data
+    const [data] = await pool.execute(
+      `SELECT a.*, c.* FROM attendance a
+       INNER JOIN candidates c ON a.candidate_id = c.id
+       ${filterSql}
+       ORDER BY a.check_in_time DESC
+       LIMIT ? OFFSET ?`,
+      [...filterParams, pageSize, offset]
+    );
+    res.json({ data, total, page: pageNum, pageSize });
+  } catch (error) {
+    console.error("Error fetching attendance:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// 4. Get attendance statistics
+router.get("/stats", async (req, res) => {
   const { date } = req.query;
-  let where = '', params = [];
-  if (date) { where = 'WHERE DATE(a.check_in_time) = ?'; params.push(date); }
-  const [[stats]] = await pool.execute(
-    `SELECT COUNT(*) as total_attendance,
-            COUNT(CASE WHEN a.check_out_time IS NULL THEN 1 END) as currently_present,
-            COUNT(CASE WHEN a.check_out_time IS NOT NULL THEN 1 END) as checked_out
-     FROM attendance a ${where}`, params
-  );
-  res.json(stats);
+  try {
+    let filterSql = "";
+    let filterParams = [];
+    if (date) {
+      filterSql = "WHERE DATE(check_in_time) = ?";
+      filterParams.push(date);
+    }
+
+    // Total attendance
+    const [[{ total_attendance }]] = await pool.execute(
+      `SELECT COUNT(*) as total_attendance FROM attendance ${filterSql}`,
+      filterParams
+    );
+
+    // Currently present (not checked out)
+    const [[{ currently_present }]] = await pool.execute(
+      `SELECT COUNT(*) as currently_present FROM attendance
+       ${filterSql ? filterSql + " AND " : "WHERE "} check_out_time IS NULL`,
+      filterParams
+    );
+
+    // Checked out
+    const [[{ checked_out }]] = await pool.execute(
+      `SELECT COUNT(*) as checked_out FROM attendance
+       ${
+         filterSql ? filterSql + " AND " : "WHERE "
+       } check_out_time IS NOT NULL`,
+      filterParams
+    );
+
+    res.json({ total_attendance, currently_present, checked_out });
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-// Update attendance manually
-router.put('/:id', async (req, res) => {
+// 5. Manual attendance update
+router.put("/:id", async (req, res) => {
   const { status, check_in_time, check_out_time } = req.body;
-  let fields = [], values = [];
-  if (status) { fields.push('status = ?'); values.push(status); }
-  if (check_in_time) { fields.push('check_in_time = ?'); values.push(check_in_time); }
-  if (check_out_time) { fields.push('check_out_time = ?'); values.push(check_out_time); }
-  if (!fields.length) return res.status(400).json({ error: 'No fields to update' });
+  let fields = [],
+    values = [];
+  if (status) {
+    fields.push("status = ?");
+    values.push(status);
+  }
+  if (check_in_time) {
+    fields.push("check_in_time = ?");
+    values.push(new Date(check_in_time));
+  }
+  if (check_out_time) {
+    fields.push("check_out_time = ?");
+    values.push(new Date(check_out_time));
+  }
+  if (!fields.length)
+    return res.status(400).json({ error: "No fields to update" });
   values.push(req.params.id);
-  const [result] = await pool.execute(`UPDATE attendance SET ${fields.join(', ')} WHERE id = ?`, values);
-  if (!result.affectedRows) return res.status(404).json({ error: 'Attendance not found' });
-  res.json({ message: 'Attendance updated' });
+
+  try {
+    const [result] = await pool.execute(
+      `UPDATE attendance SET ${fields.join(", ")} WHERE id = ?`,
+      values
+    );
+    if (!result.affectedRows)
+      return res.status(404).json({ error: "Attendance record not found" });
+
+    // Return updated record
+    const [[updated]] = await pool.execute(
+      "SELECT * FROM attendance WHERE id = ?",
+      [req.params.id]
+    );
+    res.json({ message: "Attendance updated successfully", updated });
+  } catch (error) {
+    console.error("Error updating attendance:", error);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 module.exports = router;
