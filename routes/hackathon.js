@@ -3,7 +3,7 @@ const pool = require('../db');
 const router = express.Router();
 
 // Create hackathon
-router.post('/', async (req, res) => {
+router.post('/create', async (req, res) => {
   const { title, clientName, executionDate, executedBy, description, registrationLink, skillsFocused, status } = req.body;
   if (!title || !description) return res.status(400).json({ error: 'Title and description required' });
   const [result] = await pool.execute(
@@ -51,5 +51,33 @@ router.delete('/:id', async (req, res) => {
   if (!result.affectedRows) return res.status(404).json({ error: 'Hackathon not found' });
   res.json({ message: 'Hackathon deleted' });
 });
+
+router.get('/status/:status', async (req, res) => {
+  try {
+    const { status } = req.params;
+
+    // Validate status
+    const validStatuses = ['upcoming', 'ongoing', 'completed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status value' });
+    }
+
+    const limit = Math.max(0, parseInt(req.query.limit ) || 10);
+    const offset = Math.max(0, parseInt(req.query.offset) || 0);
+
+    console.log({ limit, offset });
+
+    const [rows] = await pool.promise().execute(
+      'SELECT * FROM candidates WHERE status = ? ORDER BY created_at DESC',
+      [status, limit, offset]
+    );
+
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching candidates by status:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 
 module.exports = router;

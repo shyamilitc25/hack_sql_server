@@ -37,6 +37,7 @@ router.post('/login', async (req, res) => {
 // Create admin
 router.post('/create', async (req, res) => {
   const { username, password } = req.body;
+  console.log({req})
   if (!username || !password)
     return res.status(400).json({ error: 'Username and password are required' });
 

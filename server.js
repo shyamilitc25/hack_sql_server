@@ -15,7 +15,7 @@ app.use('/api/candidates', require('./routes/candidates'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/squads', require('./routes/squads'));
 app.use('/api/reports', require('./routes/reports'));
-app.use('/api/hackathon', require('./routes/hackathon'));
+app.use('/api/hackathons', require('./routes/hackathon'));
 app.use('/api/image', require('./routes/image'));
 
 app.get('/', (req, res) => res.json({ message: 'Hackathon server running!' }));

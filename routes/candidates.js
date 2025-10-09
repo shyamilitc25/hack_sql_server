@@ -87,21 +87,42 @@ router.post('/import-excel', upload.single('excelFile'), async (req, res) => {
 
 // List candidates (pagination/search)
 router.get('/', async (req, res) => {
-  let { page = 1, limit = 10, search = '' } = req.query;
-  page = parseInt(page); limit = parseInt(limit);
-  const offset = (page - 1) * limit;
-  let where = '';
-  let params = [];
-  if (search) {
-    where = 'WHERE name LIKE ? OR email LIKE ? OR university LIKE ? OR degree LIKE ? OR skills LIKE ?';
-    params = Array(5).fill(`%${search}%`);
+  try {
+    let { page = '1', limit = '10', search = '' } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page ));
+    const limitNum = Math.max(1, parseInt(limit));
+    const offset = (pageNum - 1) * limitNum;
+
+    let whereClause = '';
+    let searchParams = [];
+
+    if (search && search.trim() !== '') {
+      whereClause = 'WHERE name LIKE ? OR email LIKE ? OR university LIKE ? OR degree LIKE ? OR skills LIKE ?';
+      searchParams = Array(5).fill(`%${search}%`);
+    }
+
+    // Total count query
+    const countQuery = `SELECT COUNT(*) as total FROM candidates ${whereClause}`;
+    const [[{ total }]] = await pool.execute(countQuery, searchParams);
+
+    // Data query with pagination
+    const dataQuery = `SELECT * FROM candidates ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    const [candidates] = await pool.execute(dataQuery, [...searchParams, limitNum, offset]);
+
+    res.json({
+      data: candidates,
+      total,
+      page: pageNum,
+      pageSize: limitNum,
+    });
+  } catch (error) {
+    console.error('Error fetching candidates:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
-  const [[{ total }]] = await pool.execute(`SELECT COUNT(*) as total FROM candidates ${where}`, params);
-  const [candidates] = await pool.execute(
-    `SELECT * FROM candidates ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]
-  );
-  res.json({ data: candidates, total, page, pageSize: limit });
 });
+
+ 
 
 // Get candidate by ID
 router.get('/:id', async (req, res) => {
