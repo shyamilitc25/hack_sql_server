@@ -54,43 +54,69 @@ router.post("/create", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+app.get("/hackathon/:hackathonId/squads/pdf", async (req, res) => {
+  const { hackathonId } = req.params;
+
+  try {
+    // Fetch squads and members
+    const [squads] = await db.query(
+      `SELECT s.id as squad_id, s.name as squad_name
+       FROM squads s
+       JOIN hackathons h ON h.id = ?`,
+      [hackathonId]
+    );
+
+    if (squads.length === 0) {
+      return res.status(404).json({ message: "No squads found" });
+    }
+
+    // Create PDF
+    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=hackathon_${hackathonId}_squads.pdf`
+    );
+
+    doc.pipe(res);
+
+    for (const squad of squads) {
+      doc.fontSize(18).text(`Squad: ${squad.squad_name}`, { underline: true });
+      doc.moveDown();
+
+      // Fetch members for squad
+      const [members] = await db.query(
+        `SELECT c.name, c.skills, i.data
+         FROM squad_members sm
+         JOIN candidates c ON c.id = sm.candidate_id
+         LEFT JOIN images i ON i.candidate_id = c.id
+         WHERE sm.squad_id = ?`,
+        [squad.squad_id]
+      );
+
+      for (const member of members) {
+        doc.fontSize(12).text(`Name: ${member.name}`);
+        doc.text(`Skills: ${member.skills || "N/A"}`);
+
+        if (member.data) {
+          const imgBuffer = Buffer.from(member.data);
+          doc.image(imgBuffer, { width: 80, height: 80 });
+        }
+
+        doc.moveDown();
+      }
+
+      doc.addPage(); // Next squad in a new page
+    }
+
+    doc.end();
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // List hackathons (with pagination & search)
-router.get("/", async (req, res) => {
- try {
-   const { page = 1, limit = 10, search = "" } = req.query;
-   const skip = (Number(page) - 1) * Number(limit);
-   let whereClause = "";
-   let params = [];
-   if (search) {
-     whereClause = `WHERE title LIKE ? OR client_name LIKE ? OR executed_by LIKE ? OR description LIKE ? OR skills_focused LIKE ?`;
-     for (let i = 0; i < 5; i++) params.push(`%${search}%`);
-   }
-   // Get total
-   const [totalRows] = await pool.query(
-     `SELECT COUNT(*) as total FROM hackathons ${whereClause}`,
-     params
-   );
-   const total = totalRows[0].total;
-   // ✅ Fix: Directly inject limit & offset as safe numbers
-   const sql = `
-     SELECT * FROM hackathons
-     ${whereClause}
-     ORDER BY execution_date DESC
-     LIMIT ${Number(limit)} OFFSET ${Number(skip)}
-   `;
-   const [hackathons] = await pool.query(sql, params);
-   res.json({
-     data: hackathons,
-     total,
-     page: Number(page),
-     pageSize: Number(limit),
-   });
- } catch (error) {
-   console.error("Error fetching hackathons:", error);
-   res.status(500).json({ message: "Internal server error" });
- }
-});
 
 // Get hackathon by ID
 router.get("/:id", async (req, res) => {
@@ -220,3 +246,8 @@ console.log({status})
 });
 
 module.exports = router;
+
+
+
+
+export default SquadPrintButton;
