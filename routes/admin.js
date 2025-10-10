@@ -26,7 +26,7 @@ router.post("/login", async (req, res) => {
       .status(400)
       .json({ error: "Username and password are required" });
 
-  const [[admin]] = await pool.execute(
+  const [[admin]] = await pool.query(
     "SELECT * FROM admins WHERE username = ?",
     [username]
   );
@@ -57,11 +57,11 @@ router.post("/create", async (req, res) => {
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    await pool.execute(
+    await pool.query(
       "INSERT INTO admins (username, password_hash) VALUES (?, ?)",
       [username, hashedPassword]
     );
-    const [[admin]] = await pool.execute(
+    const [[admin]] = await pool.query(
       "SELECT * FROM admins WHERE username = ?",
       [username]
     );
@@ -78,8 +78,8 @@ router.post("/create", async (req, res) => {
   }
 });
 
-// All other endpoints should use async/await and pool.execute for MySQL
+// All other endpoints should use async/await and pool.query for MySQL
 // (dashboard, recent-activity, update, delete, etc.)
-// See previous SQLite code, just swap out db.run/db.get/db.all for pool.execute
+// See previous SQLite code, just swap out db.run/db.get/db.all for pool.query
 
 module.exports = router;

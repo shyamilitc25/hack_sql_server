@@ -30,7 +30,7 @@ router.post("/create", async (req, res) => {
         .json({ message: "Title and description are required." });
     }
 
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       "INSERT INTO hackathons (title, client_name, execution_date, executed_by, description, registration_link, skills_focused, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [
         title,
@@ -44,7 +44,7 @@ router.post("/create", async (req, res) => {
       ]
     );
     // Get the created record
-    const [[savedHackathon]] = await pool.execute(
+    const [[savedHackathon]] = await pool.query(
       "SELECT * FROM hackathons WHERE id = ?",
       [result.insertId]
     );
@@ -57,47 +57,45 @@ router.post("/create", async (req, res) => {
 
 // List hackathons (with pagination & search)
 router.get("/", async (req, res) => {
-  try {
-    const { page = 1, limit = 10, search = "" } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
-
-    let whereClause = "";
-    let params = [];
-
-    if (search) {
-      whereClause = `WHERE title LIKE ? OR client_name LIKE ? OR executed_by LIKE ? OR description LIKE ? OR skills_focused LIKE ?`;
-      for (let i = 0; i < 5; i++) params.push(`%${search}%`);
-    }
-
-    // Get total
-    const [totalRows] = await pool.execute(
-      `SELECT COUNT(*) as total FROM hackathons ${whereClause}`,
-      params
-    );
-    const total = totalRows[0].total;
-
-    // Get paginated data
-    const [hackathons] = await pool.execute(
-      `SELECT * FROM hackathons ${whereClause} ORDER BY execution_date DESC LIMIT ? OFFSET ?`,
-      [...params, Number(limit), skip]
-    );
-
-    res.json({
-      data: hackathons,
-      total,
-      page: Number(page),
-      pageSize: Number(limit),
-    });
-  } catch (error) {
-    console.error("Error fetching hackathons:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
+ try {
+   const { page = 1, limit = 10, search = "" } = req.query;
+   const skip = (Number(page) - 1) * Number(limit);
+   let whereClause = "";
+   let params = [];
+   if (search) {
+     whereClause = `WHERE title LIKE ? OR client_name LIKE ? OR executed_by LIKE ? OR description LIKE ? OR skills_focused LIKE ?`;
+     for (let i = 0; i < 5; i++) params.push(`%${search}%`);
+   }
+   // Get total
+   const [totalRows] = await pool.query(
+     `SELECT COUNT(*) as total FROM hackathons ${whereClause}`,
+     params
+   );
+   const total = totalRows[0].total;
+   // ✅ Fix: Directly inject limit & offset as safe numbers
+   const sql = `
+     SELECT * FROM hackathons
+     ${whereClause}
+     ORDER BY execution_date DESC
+     LIMIT ${Number(limit)} OFFSET ${Number(skip)}
+   `;
+   const [hackathons] = await pool.query(sql, params);
+   res.json({
+     data: hackathons,
+     total,
+     page: Number(page),
+     pageSize: Number(limit),
+   });
+ } catch (error) {
+   console.error("Error fetching hackathons:", error);
+   res.status(500).json({ message: "Internal server error" });
+ }
 });
 
 // Get hackathon by ID
 router.get("/:id", async (req, res) => {
   try {
-    const [[hackathon]] = await pool.execute(
+    const [[hackathon]] = await pool.query(
       "SELECT * FROM hackathons WHERE id = ?",
       [req.params.id]
     );
@@ -162,7 +160,7 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: "No fields to update" });
 
     values.push(req.params.id);
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       `UPDATE hackathons SET ${fields.join(", ")} WHERE id = ?`,
       values
     );
@@ -170,7 +168,7 @@ router.put("/:id", async (req, res) => {
       return res.status(404).json({ error: "Hackathon not found" });
 
     // Return updated hackathon
-    const [[updatedHackathon]] = await pool.execute(
+    const [[updatedHackathon]] = await pool.query(
       "SELECT * FROM hackathons WHERE id = ?",
       [req.params.id]
     );
@@ -185,7 +183,7 @@ router.put("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     // Mark as deleted instead of hard delete
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       "UPDATE hackathons SET status = ? WHERE id = ?",
       ["deleted", req.params.id]
     );
@@ -206,11 +204,11 @@ router.get("/status/:status", async (req, res) => {
     if (!HackathonStatuses.includes(status)) {
       return res.status(400).json({ message: "Invalid status value" });
     }
-
+console.log({status})
     const limit = Math.max(0, parseInt(req.query.limit) || 10);
     const offset = Math.max(0, parseInt(req.query.offset) || 0);
 
-    const [rows] = await pool.execute(
+    const [rows] = await pool.query(
       "SELECT * FROM hackathons WHERE status = ? ORDER BY execution_date DESC LIMIT ? OFFSET ?",
       [status, limit, offset]
     );

@@ -8,7 +8,7 @@ const router = express.Router();
 // Comprehensive report
 router.get('/comprehensive', async (req, res) => {
   try {
-    const [candidates] = await pool.execute(`
+    const [candidates] = await pool.query(`
       SELECT c.*, COUNT(a.id) as total_attendance_days, MAX(a.check_in_time) as last_attendance
       FROM candidates c
       LEFT JOIN attendance a ON c.id = a.candidate_id
@@ -16,7 +16,7 @@ router.get('/comprehensive', async (req, res) => {
       ORDER BY c.name
     `);
 
-    const [squads] = await pool.execute(`
+    const [squads] = await pool.query(`
       SELECT s.*, GROUP_CONCAT(c.name) as member_names, GROUP_CONCAT(c.skills) as member_skills
       FROM squads s
       LEFT JOIN squad_members sm ON s.id = sm.squad_id
@@ -25,7 +25,7 @@ router.get('/comprehensive', async (req, res) => {
       ORDER BY s.name
     `);
 
-    const [attendanceStats] = await pool.execute(`
+    const [attendanceStats] = await pool.query(`
       SELECT DATE(check_in_time) as date,
              COUNT(*) as attendance_count,
              COUNT(CASE WHEN check_out_time IS NOT NULL THEN 1 END) as checked_out_count
@@ -34,7 +34,7 @@ router.get('/comprehensive', async (req, res) => {
       ORDER BY date DESC
     `);
 
-    const [skillsDistribution] = await pool.execute(`
+    const [skillsDistribution] = await pool.query(`
       SELECT skills, COUNT(*) as count
       FROM candidates
       WHERE skills IS NOT NULL AND skills != ''
@@ -82,14 +82,14 @@ router.get('/comprehensive', async (req, res) => {
 // Download Excel report
 router.get('/download-excel', async (req, res) => {
   try {
-    const [candidates] = await pool.execute(`
+    const [candidates] = await pool.query(`
       SELECT c.*, COUNT(a.id) as total_attendance_days, MAX(a.check_in_time) as last_attendance
       FROM candidates c
       LEFT JOIN attendance a ON c.id = a.candidate_id
       GROUP BY c.id
       ORDER BY c.name
     `);
-    const [squads] = await pool.execute(`
+    const [squads] = await pool.query(`
       SELECT s.*, GROUP_CONCAT(c.name) as member_names
       FROM squads s
       LEFT JOIN squad_members sm ON s.id = sm.squad_id
@@ -97,7 +97,7 @@ router.get('/download-excel', async (req, res) => {
       GROUP BY s.id
       ORDER BY s.name
     `);
-    const [attendance] = await pool.execute(`
+    const [attendance] = await pool.query(`
       SELECT a.id, c.name as candidate_name, c.email, a.check_in_time, a.check_out_time, a.status
       FROM attendance a
       JOIN candidates c ON a.candidate_id = c.id
