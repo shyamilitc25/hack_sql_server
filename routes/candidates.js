@@ -33,10 +33,11 @@ const generateQRCode = async (candidateId) => {
 
 router.post('/import-excel', upload.single('excelFile'), async (req, res) => {
   try {
+    const hackathonId=req.body.hackathonId
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-
+    
     let data = [];
     const ext = path.extname(req.file.originalname).toLowerCase();
 
@@ -83,7 +84,7 @@ router.post('/import-excel', upload.single('excelFile'), async (req, res) => {
       if (existingRows.length === 0) {
         // Insert new candidate
         const [result] = await pool.query(
-          'INSERT INTO candidates (name, age, degree, university, batch, phone, email, skills, photo_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO candidates (name, age, degree, university, batch, phone, email, skills, photo_url,hackathon_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,?)',
           [
             candidate.name,
             candidate.age,
@@ -94,15 +95,17 @@ router.post('/import-excel', upload.single('excelFile'), async (req, res) => {
             candidate.email,
             candidate.skills,
             candidate.photo_url,
+            hackathonId
+         
           ]
         );
 
-        // Generate QR code and update candidate
-        const qrCode = await generateQRCode(result.insertId);
-        await pool.query('UPDATE candidates SET qr_code = ? WHERE id = ?', [
-          qrCode,
-          result.insertId,
-        ]);
+        // // Generate QR code and update candidate
+        // const qrCode = await generateQRCode(result.insertId);
+        // await pool.query('UPDATE candidates SET qr_code = ? WHERE id = ?', [
+        //   qrCode,
+        //   result.insertId,
+        // ]);
 
         imported++;
       }
@@ -190,6 +193,7 @@ router.delete('/clear-all', async (req, res) => {
   
     await pool.query('DELETE FROM squads');
     await pool.query('DELETE FROM attendance');
+     await pool.query('DELETE FROM images');
     await pool.query('DELETE FROM candidates');
 
     res.json({

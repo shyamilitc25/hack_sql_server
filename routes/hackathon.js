@@ -91,33 +91,29 @@ router.get("/", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
-router.get("/:hackathonId/squads", async (req, res) => {
+router.get("/:hackathonId/squads/pdf", async (req, res) => {
   const { hackathonId } = req.params;
 
   try {
-    // Fetch squads for the hackathon
     const [squads] = await pool.query(
-      `SELECT s.id as squad_id, s.name as squad_name
+      `SELECT DISTINCT s.id AS squad_id, s.name AS squad_name
        FROM squads s
        JOIN squad_members sm ON sm.squad_id = s.id
        JOIN candidates c ON c.id = sm.candidate_id
-       WHERE s.id IN (
-         SELECT sm.squad_id FROM squad_members sm
-         JOIN candidates c ON c.id = sm.candidate_id
-       )
-       GROUP BY s.id`
+    
+       WHERE c.hackathon_id = ?`,
+      [hackathonId]
     );
 
     if (squads.length === 0) {
-      return res.status(404).json({ message: "No squads found" });
+      return res.status(404).json({ message: "No squads found for this hackathon" });
     }
 
     const squadsWithMembers = [];
 
     for (const squad of squads) {
-      // Fetch members for squad
       const [members] = await pool.query(
-        `SELECT c.name, c.skills, i.data
+        `SELECT c.name, c.email, c.skills, i.data AS image_blob
          FROM squad_members sm
          JOIN candidates c ON c.id = sm.candidate_id
          LEFT JOIN images i ON i.candidate_id = c.id
@@ -125,28 +121,29 @@ router.get("/:hackathonId/squads", async (req, res) => {
         [squad.squad_id]
       );
 
-      // Convert BLOB images to Base64
       const membersWithBase64 = members.map((member) => ({
         name: member.name,
+        email: member.email,
         skills: member.skills || "N/A",
-        imageBase64: member.data
-          ? `data:image/jpeg;base64,${Buffer.from(member.data).toString(
-              "base64"
-            )}`
+        imageBase64: member.image_blob
+          ? `data:image/jpeg;base64,${Buffer.from(member.image_blob).toString("base64")}`
           : null,
       }));
+      //console.log({membersWithBase64})
 
       squadsWithMembers.push({
         squad_id: squad.squad_id,
         squad_name: squad.squad_name,
         members: membersWithBase64,
       });
+
     }
+    
 
     res.json(squadsWithMembers);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    console.error("Error fetching squads:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -278,51 +275,5 @@ router.get("/status/:status", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
-const generateSquadHtml = (squad) => {
-  const members = squad?.members || [];
-  const squadName = squad.name || "Unnamed Squad";
-  const skillName = members.map((m) => m.skills).join(", ") || "No Skill Name";
-
-  const rows = [];
-  for (let i = 0; i < members.length; i += 2) {
-    const left = members[i];
-    const right = members[i + 1];
-
-    rows.push(`
-      <div class="row">
-        <div class="member">
-          ${
-            left.imageBase64
-              ? `<img src="${left.imageBase64}" alt="${left.name}" />`
-              : `<em>No image</em>`
-          }
-          <div class="info">
-            <strong>Name:</strong> ${left.name}<br/>
-            <strong>Email:</strong> ${left.email || "N/A"}
-          </div>
-        </div>
-        ${
-          right
-            ? `<div class="member">
-                ${
-                  right.imageBase64
-                    ? `<img src="${right.imageBase64}" alt="${right.name}" />`
-                    : `<em>No image</em>`
-                }
-                <div class="info">
-                  <strong>Name:</strong> ${right.name}<br/>
-                  <strong>Email:</strong> ${right.email || "N/A"}
-                </div>
-              </div>`
-            : `<div class="member" style="visibility: hidden;"></div>`
-        }
-      </div>
-    `);
-  }
-
-  return `<h2 style="page-break-before: always;">${squadName} - ${skillName}</h2>${rows.join(
-    ""
-  )}`;
-};
 
 module.exports = router;
