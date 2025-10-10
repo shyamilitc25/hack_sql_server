@@ -138,22 +138,10 @@ router.get("/:hackathonId/squads/pdf", async (req, res) => {
         doc.text(`Skills: ${member.skills || "N/A"}`);
 
         if (member.data) {
+          const imgBuffer = Buffer.from(member.data);
           try {
-            const imgBuffer = Buffer.from(member.data);
-
-            // Detect file type
-            const type = await FileType.fromBuffer(imgBuffer);
-
-            if (
-              type &&
-              (type.mime === "image/jpeg" || type.mime === "image/png")
-            ) {
-              doc.image(imgBuffer, { width: 80, height: 80 });
-            } else {
-              doc.text("Unsupported image format.");
-            }
-          } catch (err) {
-            console.error("Image render error:", err);
+            doc.image(imgBuffer, { width: 80, height: 80 });
+          } catch {
             doc.text("Image could not be rendered.");
           }
         }
