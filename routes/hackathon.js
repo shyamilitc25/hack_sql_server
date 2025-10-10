@@ -1,8 +1,8 @@
 const express = require("express");
 const pool = require("../db");
-const PDFDocument=require("pdfkit")
+const PDFDocument = require("pdfkit");
 const router = express.Router();
-const fileType = require('file-type');
+const fileType = require("file-type");
 
 // Utility: Valid statuses for hackathon
 const HackathonStatuses = [
@@ -57,40 +57,40 @@ router.post("/create", async (req, res) => {
   }
 });
 router.get("/", async (req, res) => {
- try {
-   const { page = 1, limit = 10, search = "" } = req.query;
-   const skip = (Number(page) - 1) * Number(limit);
-   let whereClause = "";
-   let params = [];
-   if (search) {
-     whereClause = `WHERE title LIKE ? OR client_name LIKE ? OR executed_by LIKE ? OR description LIKE ? OR skills_focused LIKE ?`;
-     for (let i = 0; i < 5; i++) params.push(`%${search}%`);
-   }
-   // Get total
-   const [totalRows] = await pool.query(
-     `SELECT COUNT(*) as total FROM hackathons ${whereClause}`,
-     params
-   );
-   const total = totalRows[0].total;
-   // ✅ Fix: Directly inject limit & offset as safe numbers
-   const sql = `
+  try {
+    const { page = 1, limit = 10, search = "" } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+    let whereClause = "";
+    let params = [];
+    if (search) {
+      whereClause = `WHERE title LIKE ? OR client_name LIKE ? OR executed_by LIKE ? OR description LIKE ? OR skills_focused LIKE ?`;
+      for (let i = 0; i < 5; i++) params.push(`%${search}%`);
+    }
+    // Get total
+    const [totalRows] = await pool.query(
+      `SELECT COUNT(*) as total FROM hackathons ${whereClause}`,
+      params
+    );
+    const total = totalRows[0].total;
+    // ✅ Fix: Directly inject limit & offset as safe numbers
+    const sql = `
      SELECT * FROM hackathons
      ${whereClause}
      ORDER BY execution_date DESC
      LIMIT ${Number(limit)} OFFSET ${Number(skip)}
    `;
-   const [hackathons] = await pool.query(sql, params);
-   res.json({
-     data: hackathons,
-     total,
-     page: Number(page),
-     pageSize: Number(limit),
-   });
- } catch (error) {
-   console.error("Error fetching hackathons:", error);
-   res.status(500).json({ message: "Internal server error" });
- }
-})
+    const [hackathons] = await pool.query(sql, params);
+    res.json({
+      data: hackathons,
+      total,
+      page: Number(page),
+      pageSize: Number(limit),
+    });
+  } catch (error) {
+    console.error("Error fetching hackathons:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
 router.get("/:hackathonId/squads/pdf", async (req, res) => {
   const { hackathonId } = req.params;
 
@@ -137,31 +137,31 @@ router.get("/:hackathonId/squads/pdf", async (req, res) => {
         doc.fontSize(12).text(`Name: ${member.name}`);
         doc.text(`Skills: ${member.skills || "N/A"}`);
 
-       
-if (member.data) {
-  try {
-    const imgBuffer = Buffer.from(member.data);
-    const type = await fileType.fromBuffer(imgBuffer);
+        if (member.data) {
+          try {
+            const imgBuffer = Buffer.from(member.data);
 
-    if (type && (type.mime === 'image/jpeg' || type.mime === 'image/png')) {
-      doc.image(imgBuffer, { width: 80, height: 80 });
-    } else {
-      doc.text("Unsupported image format.");
-    }
-  } catch (err) {
-    console.error("Image render error:", err);
-    doc.text("Image could not be rendered.");
+            // Detect file type
+            const type = await FileType.fromBuffer(imgBuffer);
 
+            if (
+              type &&
+              (type.mime === "image/jpeg" || type.mime === "image/png")
+            ) {
+              doc.image(imgBuffer, { width: 80, height: 80 });
+            } else {
+              doc.text("Unsupported image format.");
+            }
+          } catch (err) {
+            console.error("Image render error:", err);
+            doc.text("Image could not be rendered.");
+          }
+        }
 
-        doc.moveDown();
+        doc.end(); // Finalize the PDF stream
       }
-
-      doc.addPage(); // Next squad in a new page
     }
-
-    doc.end(); // Finalize the PDF stream
-
-  }}} catch (error) {
+  } catch (error) {
     console.error(error);
     // Only send error if headers haven't been sent
     if (!res.headersSent) {
@@ -284,7 +284,7 @@ router.get("/status/:status", async (req, res) => {
     if (!HackathonStatuses.includes(status)) {
       return res.status(400).json({ message: "Invalid status value" });
     }
-console.log({status})
+    console.log({ status });
     const limit = Math.max(0, parseInt(req.query.limit) || 10);
     const offset = Math.max(0, parseInt(req.query.offset) || 0);
 
@@ -300,8 +300,3 @@ console.log({status})
 });
 
 module.exports = router;
-
-
-
-
-
