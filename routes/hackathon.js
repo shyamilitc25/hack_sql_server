@@ -278,5 +278,51 @@ router.get("/status/:status", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+const generateSquadHtml = (squad) => {
+  const members = squad?.members || [];
+  const squadName = squad.name || "Unnamed Squad";
+  const skillName = members.map((m) => m.skills).join(", ") || "No Skill Name";
+
+  const rows = [];
+  for (let i = 0; i < members.length; i += 2) {
+    const left = members[i];
+    const right = members[i + 1];
+
+    rows.push(`
+      <div class="row">
+        <div class="member">
+          ${
+            left.imageBase64
+              ? `<img src="${left.imageBase64}" alt="${left.name}" />`
+              : `<em>No image</em>`
+          }
+          <div class="info">
+            <strong>Name:</strong> ${left.name}<br/>
+            <strong>Email:</strong> ${left.email || "N/A"}
+          </div>
+        </div>
+        ${
+          right
+            ? `<div class="member">
+                ${
+                  right.imageBase64
+                    ? `<img src="${right.imageBase64}" alt="${right.name}" />`
+                    : `<em>No image</em>`
+                }
+                <div class="info">
+                  <strong>Name:</strong> ${right.name}<br/>
+                  <strong>Email:</strong> ${right.email || "N/A"}
+                </div>
+              </div>`
+            : `<div class="member" style="visibility: hidden;"></div>`
+        }
+      </div>
+    `);
+  }
+
+  return `<h2 style="page-break-before: always;">${squadName} - ${skillName}</h2>${rows.join(
+    ""
+  )}`;
+};
 
 module.exports = router;
