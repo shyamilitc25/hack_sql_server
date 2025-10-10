@@ -54,45 +54,69 @@ router.post("/create", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+app.get("/hackathon/:hackathonId/squads/pdf", async (req, res) => {
+  const { hackathonId } = req.params;
 
-// List hackathons (with pagination & search)
-router.get("/", async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = "" } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    // Fetch squads and members
+    const [squads] = await db.query(
+      `SELECT s.id as squad_id, s.name as squad_name
+       FROM squads s
+       JOIN hackathons h ON h.id = ?`,
+      [hackathonId]
+    );
 
-    let whereClause = "";
-    let params = [];
-
-    if (search) {
-      whereClause = `WHERE title LIKE ? OR client_name LIKE ? OR executed_by LIKE ? OR description LIKE ? OR skills_focused LIKE ?`;
-      for (let i = 0; i < 5; i++) params.push(`%${search}%`);
+    if (squads.length === 0) {
+      return res.status(404).json({ message: "No squads found" });
     }
 
-    // Get total
-    const [totalRows] = await pool.execute(
-      `SELECT COUNT(*) as total FROM hackathons ${whereClause}`,
-      params
-    );
-    const total = totalRows[0].total;
-
-    // Get paginated data
-    const [hackathons] = await pool.execute(
-      `SELECT * FROM hackathons ${whereClause} ORDER BY execution_date DESC LIMIT ? OFFSET ?`,
-      [...params, Number(limit), skip]
+    // Create PDF
+    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=hackathon_${hackathonId}_squads.pdf`
     );
 
-    res.json({
-      data: hackathons,
-      total,
-      page: Number(page),
-      pageSize: Number(limit),
-    });
+    doc.pipe(res);
+
+    for (const squad of squads) {
+      doc.fontSize(18).text(`Squad: ${squad.squad_name}`, { underline: true });
+      doc.moveDown();
+
+      // Fetch members for squad
+      const [members] = await db.query(
+        `SELECT c.name, c.skills, i.data
+         FROM squad_members sm
+         JOIN candidates c ON c.id = sm.candidate_id
+         LEFT JOIN images i ON i.candidate_id = c.id
+         WHERE sm.squad_id = ?`,
+        [squad.squad_id]
+      );
+
+      for (const member of members) {
+        doc.fontSize(12).text(`Name: ${member.name}`);
+        doc.text(`Skills: ${member.skills || "N/A"}`);
+
+        if (member.data) {
+          const imgBuffer = Buffer.from(member.data);
+          doc.image(imgBuffer, { width: 80, height: 80 });
+        }
+
+        doc.moveDown();
+      }
+
+      doc.addPage(); // Next squad in a new page
+    }
+
+    doc.end();
   } catch (error) {
-    console.error("Error fetching hackathons:", error);
-    res.status(500).json({ message: "Internal server error" });
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
   }
 });
+
+// List hackathons (with pagination & search)
 
 // Get hackathon by ID
 router.get("/:id", async (req, res) => {
@@ -222,3 +246,37 @@ router.get("/status/:status", async (req, res) => {
 });
 
 module.exports = router;
+import React from "react";
+import axios from "axios";
+
+const SquadPrintButton = ({ hackathonId }) => {
+  const handlePrint = async () => {
+    try {
+      const response = await axios.get(
+        `http://localhost:5000/hackathon/${hackathonId}/squads/pdf`,
+        { responseType: "blob" } // Important for PDF
+      );
+
+      // Create blob and download
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = window.URL.createObjectURL(blob);
+      link.download = `hackathon_${hackathonId}_squads.pdf`;
+      link.click();
+    } catch (error) {
+      console.error(error);
+      alert("Error generating PDF");
+    }
+  };
+
+  return (
+    <button
+      onClick={handlePrint}
+      className="bg-blue-500 text-white px-4 py-2 rounded"
+    >
+      Print Squads
+    </button>
+  );
+};
+
+export default SquadPrintButton;
