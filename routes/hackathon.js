@@ -91,38 +91,30 @@ router.get("/", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
-router.get("/:hackathonId/squads/pdf", async (req, res) => {
+router.get("/:hackathonId/squads", async (req, res) => {
   const { hackathonId } = req.params;
 
   try {
-    // Fetch squads and members
+    // Fetch squads for the hackathon
     const [squads] = await pool.query(
       `SELECT s.id as squad_id, s.name as squad_name
        FROM squads s
-       JOIN hackathons h ON h.id = ?`,
-      [hackathonId]
+       JOIN squad_members sm ON sm.squad_id = s.id
+       JOIN candidates c ON c.id = sm.candidate_id
+       WHERE s.id IN (
+         SELECT sm.squad_id FROM squad_members sm
+         JOIN candidates c ON c.id = sm.candidate_id
+       )
+       GROUP BY s.id`
     );
 
     if (squads.length === 0) {
       return res.status(404).json({ message: "No squads found" });
     }
 
-    // Create PDF
-    const doc = new PDFDocument({ size: "A4", margin: 50 });
-
-    // Set headers BEFORE piping
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=hackathon_${hackathonId}_squads.pdf`
-    );
-
-    doc.pipe(res);
+    const squadsWithMembers = [];
 
     for (const squad of squads) {
-      doc.fontSize(18).text(`Squad: ${squad.squad_name}`, { underline: true });
-      doc.moveDown();
-
       // Fetch members for squad
       const [members] = await pool.query(
         `SELECT c.name, c.skills, i.data
@@ -133,28 +125,28 @@ router.get("/:hackathonId/squads/pdf", async (req, res) => {
         [squad.squad_id]
       );
 
-      for (const member of members) {
-        doc.fontSize(12).text(`Name: ${member.name}`);
-        doc.text(`Skills: ${member.skills || "N/A"}`);
+      // Convert BLOB images to Base64
+      const membersWithBase64 = members.map((member) => ({
+        name: member.name,
+        skills: member.skills || "N/A",
+        imageBase64: member.data
+          ? `data:image/jpeg;base64,${Buffer.from(member.data).toString(
+              "base64"
+            )}`
+          : null,
+      }));
 
-        if (member.data) {
-          const imgBuffer = Buffer.from(member.data);
-          try {
-            doc.image(imgBuffer, { width: 80, height: 80 });
-          } catch {
-            doc.text("Image could not be rendered.");
-          }
-        }
-
-        doc.end(); // Finalize the PDF stream
-      }
+      squadsWithMembers.push({
+        squad_id: squad.squad_id,
+        squad_name: squad.squad_name,
+        members: membersWithBase64,
+      });
     }
+
+    res.json(squadsWithMembers);
   } catch (error) {
     console.error(error);
-    // Only send error if headers haven't been sent
-    if (!res.headersSent) {
-      res.status(500).json({ message: "Server error" });
-    }
+    res.status(500).json({ message: "Server error" });
   }
 });
 
